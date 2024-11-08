@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim Processor</title>
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.6.1/dist/web3.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        #dashboard {
+            margin-top: 20px;
+        }
+        .claim-box {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .verified {
+            color: green;
+        }
+        .rejected {
+            color: red;
+        }
+        .pending {
+            color: orange;
+        }
+    </style>
+</head>
+<body>
+    <h1>Claim Processor</h1>
+
+    <!-- Form to submit a new claim -->
+    <div>
+        <h3>Submit a New Claim</h3>
+        <label for="claimName">Name: </label>
+        <input type="text" id="claimName" required>
+        <br>
+        <label for="claimAmount">Claim Amount (ETH): </label>
+        <input type="number" id="claimAmount" min="0.01" step="0.01" required>
+        <br>
+        <label for="claimData">Claim Data: </label>
+        <input type="text" id="claimData" required>
+        <br>
+        <label for="biometricHash">Biometric Hash (SHA256): </label>
+        <input type="text" id="biometricHash" required>
+        <br>
+        <button id="submitClaimButton">Submit Claim</button>
+    </div>
+
+    <!-- Dashboard displaying claims by status -->
+    <div id="dashboard">
+        <h3>Your Claims</h3>
+        <div id="verifiedClaims">
+            <h4>Verified Claims</h4>
+            <div id="verifiedClaimsList"></div>
+        </div>
+        <div id="rejectedClaims">
+            <h4>Rejected Claims</h4>
+            <div id="rejectedClaimsList"></div>
+        </div>
+        <div id="pendingClaims">
+            <h4>Pending Claims</h4>
+            <div id="pendingClaimsList"></div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Web3
+        const web3 = new Web3(Web3.givenProvider || 'http://localhost:8545');
+        let contract;
+        const contractAddress = "YOUR_CONTRACT_ADDRESS";
+        const contractABI = [
+            // ABI goes here
+        ];
+
+        async function init() {
+            const accounts = await web3.eth.requestAccounts();
+            contract = new web3.eth.Contract(contractABI, contractAddress);
+            loadClaims(accounts[0]);
+        }
+
+        async function loadClaims(address) {
+            const claims = await contract.methods.getAllClaims(address).call();
+            const verifiedClaimsList = document.getElementById('verifiedClaimsList');
+            const rejectedClaimsList = document.getElementById('rejectedClaimsList');
+            const pendingClaimsList = document.getElementById('pendingClaimsList');
+
+            verifiedClaimsList.innerHTML = '';
+            rejectedClaimsList.innerHTML = '';
+            pendingClaimsList.innerHTML = '';
+
+            claims.forEach((claim, index) => {
+                const claimDiv = document.createElement('div');
+                claimDiv.classList.add('claim-box');
+                claimDiv.innerHTML = `
+                    <b>Claim #${index}</b> - Amount: ${web3.utils.fromWei(claim.amount, 'ether')} ETH
+                    <br>Name: ${claim.name}
+                    <br>Data: ${claim.claimData}
+                    <br>Status: <span class="${getClaimStatusClass(claim.status)}">${getClaimStatusText(claim.status)}</span>
+                    <br><button onclick="verifyClaim(${index}, true)" ${claim.status !== 'Pending' ? 'disabled' : ''}>Verify Claim</button>
+                    <button onclick="verifyClaim(${index}, false)" ${claim.status !== 'Pending' ? 'disabled' : ''}>Reject Claim</button>
+                `;
+                if (claim.status === 'Verified') {
+                    verifiedClaimsList.appendChild(claimDiv);
+                } else if (claim.status === 'Rejected') {
+                    rejectedClaimsList.appendChild(claimDiv);
+                } else {
+                    pendingClaimsList.appendChild(claimDiv);
+                }
+            });
+        }
+
+        function getClaimStatusClass(status) {
+            if (status === 'Verified') return 'verified';
+            if (status === 'Rejected') return 'rejected';
+            return 'pending';
+        }
+
+        function getClaimStatusText(status) {
+            if (status === 'Verified') return 'Verified';
+            if (status === 'Rejected') return 'Rejected';
+            return 'Pending';
+        }
+
+        async function submitClaim() {
+            const name = document.getElementById('claimName').value;
+            const amount = web3.utils.toWei(document.getElementById('claimAmount').value, 'ether');
+            const data = document.getElementById('claimData').value;
+            const biometricHash = web3.utils.sha3(document.getElementById('biometricHash').value);
+
+            const accounts = await web3.eth.requestAccounts();
+            await contract.methods.submitClaim(amount, data, name, biometricHash).send({ from: accounts[0] });
+            loadClaims(accounts[0]);
+        }
+
+        async function verifyClaim(index, isValid) {
+            const accounts = await web3.eth.requestAccounts();
+            const claim = await contract.methods.getClaimDetails(accounts[0], index).call();
+            await contract.methods.updateClaimStatus(accounts[0], index, isValid).send({ from: accounts[0] });
+            loadClaims(accounts[0]);
+        }
+
+        document.getElementById('submitClaimButton').addEventListener('click', submitClaim);
+
+        window.onload = init;
+    </script>
+</body>
+</html>
