@@ -1,0 +1,83 @@
+contract ClaimProcessor {
+
+    enum ClaimStatus { Pending, Verified, Rejected }
+
+    struct Claim {
+        uint256 amount;
+        string claimData;
+        address claimant;
+        string name;  // The name of the claimant
+        uint256 timestamp;
+        ClaimStatus status;
+        uint256 timeLockEnd;
+        bytes32 biometricHash;  // Hash of the biometric data
+    }
+
+    mapping(address => Claim[]) public claims;
+    mapping(address => uint256) public claimCount;
+
+    uint256 public highClaimThreshold = 100 ether; // Claims higher than this require time lock
+    uint256 public lockDuration = 1 days; // Time lock duration for high claims
+
+    event ClaimSubmitted(address indexed claimant, uint256 amount, uint256 timestamp);
+    event ClaimStatusUpdated(address indexed claimant, uint256 claimIndex, ClaimStatus status);
+
+    // Submit a claim with biometric hash and name
+    function submitClaim(uint256 amount, string memory claimData, string memory name, bytes32 biometricHash) public {
+        require(amount > 0, "Claim amount must be greater than 0");
+
+        // Create a new claim
+        Claim memory newClaim = Claim({
+            amount: amount,
+            claimData: claimData,
+            claimant: msg.sender,
+            name: name,
+            timestamp: block.timestamp,
+            status: ClaimStatus.Pending,
+            timeLockEnd: 0,
+            biometricHash: biometricHash
+        });
+
+        // If the claim is above the threshold, apply a time lock
+        if (amount > highClaimThreshold) {
+            newClaim.timeLockEnd = block.timestamp + lockDuration;
+        }
+
+        claims[msg.sender].push(newClaim);
+        claimCount[msg.sender]++;
+
+        emit ClaimSubmitted(msg.sender, amount, block.timestamp);
+    }
+
+    // Verify or reject the claim
+    function updateClaimStatus(address claimant, uint256 claimIndex, bool isValid) public {
+        Claim storage claim = claims[claimant][claimIndex];
+
+        // Ensure the claim is not already finalized
+        require(claim.status == ClaimStatus.Pending, "Claim status is already finalized");
+
+        // Check if the claim is past the time lock (if applicable)
+        if (claim.amount > highClaimThreshold) {
+            require(block.timestamp >= claim.timeLockEnd, "Claim is time-locked");
+        }
+
+        // Update the claim status based on validation
+        if (isValid) {
+            claim.status = ClaimStatus.Verified;
+        } else {
+            claim.status = ClaimStatus.Rejected;
+        }
+
+        emit ClaimStatusUpdated(claimant, claimIndex, claim.status);
+    }
+
+    // Utility function to get claim details
+    function getClaimDetails(address claimant, uint256 claimIndex) public view returns (Claim memory) {
+        return claims[claimant][claimIndex];
+    }
+
+    // Get all claims for a user
+    function getAllClaims(address claimant) public view returns (Claim[] memory) {
+        return claims[claimant];
+    }
+}
